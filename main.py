@@ -6,22 +6,28 @@ import sys
 # local library
 import utils
 
+import os
+
+
+
 
 def main(arg):
+
     st = time.time()
     symbols = utils.get_sap_symbols('sap500')
     np.random.shuffle(symbols)
-    chosen_symbols = symbols[:10]
-    start_date="2009-04-01"
+    chosen_symbols = symbols[:2]
+    start_date="2013-04-01"
     end_date="2015-03-31"
+
     # use Open data
     input_data = utils.get_data_list_key(chosen_symbols, start_date, end_date)
     elapsed = time.time() - st
     print ("time for getting data:", elapsed)
 
-    train_st = pd.Timestamp("2009-04-01")
-    train_end = pd.Timestamp("2012-03-31")
-    test_st = pd.Timestamp("2012-04-01")
+    train_st = pd.Timestamp("2013-04-01")
+    train_end = pd.Timestamp("2014-03-31")
+    test_st = pd.Timestamp("2014-04-01")
     test_end = pd.Timestamp("2015-03-31")
 
     train_input = input_data.loc[(input_data.index >= train_st) & (input_data.index <= train_end)]
@@ -34,16 +40,19 @@ def main(arg):
 
 
     if arg == "ddpg":
-        from ddpg import DDPG
+        from model.ddpg import DDPG
         from config import DDPGConfig
         config = DDPGConfig(n_stock)
         ddpg = DDPG(config)
         values = ddpg.train(train_input)
     elif arg == "dqn":
-        from dqn import DQN
+        from model.dqn import DQN
         from config import DQNConfig
         config = DQNConfig(n_stock)
         dqn = DQN(config)
+
+        # from keras.utils import plot_model
+        # plot_model(dqn, to_file='model.png')
         values = dqn.train(train_input)
         return values
     else:

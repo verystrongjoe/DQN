@@ -6,6 +6,21 @@ from collections import deque
 from bs4 import BeautifulSoup
 # satisfy compatilibty between python2 and python3
 from six.moves.urllib.request import urlopen
+import os
+import requests
+import time
+import re
+from datetime import date
+
+
+
+# get unix time
+def get_unix_time(yyyy, mm, dd) :
+    d = date(yyyy,mm,dd)
+    unixtime = time.mktime(d.timetuple())
+    return unixtime
+
+
 version = int(sys.version[0])
 # the symbols of S&P500 and S&P 100 are ^GSPC and ^OEX
 def get_sap_symbols(name='sap500'):
@@ -20,11 +35,14 @@ def get_sap_symbols(name='sap500'):
         site = 'https://en.wikipedia.org/wiki/S%26P_100'
     else:
         raise NameError('invalid input: name should be "sap500" or "sap100"')
+
+
     # fetch data from yahoo finance
     page = urlopen(site)
     soup = BeautifulSoup(page, 'html.parser')
     table = soup.find('table', {'class': 'wikitable sortable'})
     symbols = []
+
     for row in table.findAll('tr'):
         col = row.findAll('td')
         if len(col) > 0:
@@ -55,25 +73,74 @@ def get_data(symbol, st, end):
     # split date into integers
     ys, ms, ds = date_parse(st)
     ye, me, de = date_parse(end)
+
+
     # fetch data from yahoo finance
-    url = urlopen('http://chart.finance.yahoo.com/table.csv?s=%s&a=%d&b=%d&c=%d&d=%d&e=%d&f=%d&g=d&ignore=.csv' \
-                           % (symbol, ms, ds, ys, me, de, ye))
-    history = url.read()
-    if version == 3:
-        history = str(history).split('\\n')
-        # get rid of 'b'
-        keys = history[0].split("'")[1]
-    else:
-        history = str(history).split('\n')
-        keys = history[0]
+    #url = urlopen('http://chart.finance.yahoo.com/table.csv?s=%s&a=%d&b=%d&c=%d&d=%d&e=%d&f=%d&g=d&ignore=.csv' % (symbol, ms, ds, ys, me, de, ye))
+    #history = url.read()
+
+    # the exiting one is broken.
+    user_agent_s = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/59.0.3071.104 Safari/537.36'
+    qurl_s = 'https://query1.finance.yahoo.com/v7/finance/download/'
+    p1p2_s = '?period1=' + str(int(get_unix_time(ys,ms,ds)))+ '&period2='
+
+    ie_s = '&interval=1d&events='
+
+    url1_s = 'https://finance.yahoo.com/quote/' + symbol
+    url2_s = url1_s + '/history?p=' + symbol
+    headers_d = {'User-Agent': user_agent_s}
+
+    with requests.Session() as ssn:
+
+        tkr1_r = ssn.get(url1_s, headers=headers_d)
+        time.sleep(2)
+
+        tkr2_r = ssn.get(url2_s, headers=headers_d)
+        html_s = tkr2_r.content.decode("utf-8")
+
+
+        pattern_re = r'(CrumbStore":{"crumb":")(.+?")'
+        pattern_ma = re.search(pattern_re, html_s)  # The crumb I want is in pattern_ma[2].
+        crumb_s = pattern_ma.group(2).replace(r'"', '')
+
+        #d = datetime.datetime.now()
+        # nowutime_s = int(time.mktime(d.timetuple()))
+        # nowutime_s = datetime.datetime.now().strftime("%s"))
+
+        csvurl_s = qurl_s + symbol + p1p2_s + str(int(get_unix_time(ye,me,de))) + ie_s + 'history' + '&crumb=' + crumb_s
+
+        # Server needs time to remember the cookie-crumb-pair it just served:
+        time.sleep(2)
+        csv_r = ssn.get(csvurl_s, headers=headers_d)
+        history = csv_s = csv_r.content.decode("utf-8")
+
+
+        if (csv_r.status_code != 200):
+            print("it is failed..")
+
+
+
+    # if version == 3:
+    #     history = str(history).split('\n')
+    #     # get rid of 'b'
+    #     keys = history[0].split("'")[1]
+    # else:
+    history = str(history).split('\n')
+    keys = history[0]
+
+
     keys = keys.split(',')[1:]
+
     # convert fetched data into the DataFrame
     values = deque()
     dates = deque()
+
     for x in history[1:-1]:
         x = x.split(',')
         dates.appendleft(pd.Timestamp(x[0]))
         values.appendleft([float(value) for value in x[1:]])
+
+
     return pd.DataFrame(list(values), columns=keys, index=list(dates))
 
 def get_data_list_full(symbols, st, end):
@@ -84,8 +151,7 @@ def get_data_list_full(symbols, st, end):
     return data
 
 def get_data_list_key(symbols, st, end, key='Open'):
-    """Get historical data of key attribute
-    from yahoo-finance as pd.DataFrame
+    """Get historical data of key attribute from yahoo-finance as pd.DataFrame
     
     Args:
         symbols: list of ticker symbols, e.g. ['AFL', 'AAPL', ....]
@@ -99,6 +165,7 @@ def get_data_list_key(symbols, st, end, key='Open'):
     fail_symbols = []
     # length of data 
     max_len = 0
+
     for s in symbols:
         try:
             x = get_data(s, st, end)
